@@ -8,7 +8,17 @@ ECJ="${ECJ_JAR:-$TOOLS/ecj.jar}"
 BUILD="${BUILD_DIR:-build}"
 python3 tools/materialize.py
 mkdir -p "$BUILD/classes" "$BUILD/dex"
-"$BT/aapt2" compile --dir res -o "$BUILD/resources.zip"
+rm -rf "$BUILD/res-staged" "$BUILD/classes" "$BUILD/dex" "$BUILD/generated"
+mkdir -p "$BUILD/res-staged" "$BUILD/classes" "$BUILD/dex"
+python3 - "$BUILD/res-staged" <<'PYRES'
+import sys, shutil
+from pathlib import Path
+out=Path(sys.argv[1])
+for p in Path('res').rglob('*'):
+    if p.is_file() and p.suffix != '.b64':
+        target=out/p.relative_to('res'); target.parent.mkdir(parents=True,exist_ok=True); shutil.copy2(p,target)
+PYRES
+"$BT/aapt2" compile --dir "$BUILD/res-staged" -o "$BUILD/resources.zip"
 "$BT/aapt2" link -o "$BUILD/resources.apk" -I "$ANDROID_JAR" --manifest AndroidManifest.xml --java "$BUILD/generated" "$BUILD/resources.zip"
 find src "$BUILD/generated" -name '*.java' > "$BUILD/sources.list"
 java -jar "$ECJ" -8 -proc:none -nowarn -classpath "$ANDROID_JAR" -d "$BUILD/classes" @"$BUILD/sources.list"
