@@ -1,0 +1,34 @@
+{
+  "version": 1,
+  "notice": "AI-generated illustrations resized from 1376x768 to 3840x2160; not native 4K detail. Loaded into RAM only.",
+  "images": [
+    {
+      "url": "https://raw.githubusercontent.com/Vla3Daak/Nagi-TV/main/wallpapers/sakura-bay.jpg.b64",
+      "encoding": "base64",
+      "title": "Сакура у залива",
+      "width": 3840,
+      "height": 2160,
+      "originalSize": [
+        1376,
+        768
+      ],
+      "upscaled": true,
+      "credit": "AI-generated for Nagi TV",
+      "usage": "Original generated characters and scenery, not Apple footage or franchise art"
+    },
+    {
+      "url": "https://raw.githubusercontent.com/Vla3Daak/Nagi-TV/main/wallpapers/rainy-station.jpg.b64",
+      "encoding": "base64",
+      "title": "Дождь у станции",
+      "width": 3840,
+      "height": 2160,
+      "originalSize": [
+        1376,
+        768
+      ],
+      "upscaled": true,
+      "credit": "AI-generated for Nagi TV",
+      "usage": "Original generated characters and scenery, not Apple footage or franchise art"
+    }
+  ]
+}
