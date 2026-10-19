@@ -38,6 +38,6 @@ cp "$BUILD/resources.apk" "$BUILD/unsigned.apk"
 "$BT/zipalign" -f -p 4 "$BUILD/unsigned.apk" "$BUILD/aligned.apk"
 if [[ ! -f private/release.jks || ! -f private/signing.env ]]; then echo 'Dedicated release signing key missing.' >&2; exit 2; fi
 set -a; source private/signing.env; set +a
-"$BT/apksigner" sign --ks private/release.jks --ks-key-alias nagitv --ks-pass env:NAGI_KEY_PASSWORD --key-pass env:NAGI_KEY_PASSWORD --out "$BUILD/Nagi-TV-v0.2.0.apk" "$BUILD/aligned.apk"
-"$BT/apksigner" verify --verbose --print-certs "$BUILD/Nagi-TV-v0.2.0.apk" > "$BUILD/signature-report.txt"
-sha256sum "$BUILD/Nagi-TV-v0.2.0.apk"
+"$BT/apksigner" sign --ks private/release.jks --ks-key-alias nagitv --ks-pass env:NAGI_KEY_PASSWORD --key-pass env:NAGI_KEY_PASSWORD --out "$BUILD/Nagi-TV-v0.2.1.apk" "$BUILD/aligned.apk"
+"$BT/apksigner" verify --verbose --print-certs "$BUILD/Nagi-TV-v0.2.1.apk" > "$BUILD/signature-report.txt"
+sha256sum "$BUILD/Nagi-TV-v0.2.1.apk"
