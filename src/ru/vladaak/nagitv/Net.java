@@ -10,7 +10,7 @@ public final class Net {
             Policy.https(url);
             HttpURLConnection c=(HttpURLConnection)new URL(url).openConnection();
             c.setInstanceFollowRedirects(false);c.setUseCaches(false);c.setConnectTimeout(12000);c.setReadTimeout(15000);
-            String agent="NagiTV/0.2.0";
+            String agent="NagiTV/0.2.1";
             if(zerochanUser!=null){
                 String host=Policy.https(url).getHost();
                 if(!"www.zerochan.net".equalsIgnoreCase(host)&&!"zerochan.net".equalsIgnoreCase(host))throw new IOException("API Zerochan перенаправил на другой сайт");
@@ -42,6 +42,10 @@ public final class Net {
         if(!id.matches("[0-9]{1,12}"))throw new IOException("Неверный ID Zerochan");
         ArtSources.zerochanUser(user);zerochanWait();
         return new String(bytes("https://www.zerochan.net/"+id+"?json",512*1024,user),StandardCharsets.UTF_8);
+    }
+    public static String zerochanFeed(String catalog,String user)throws Exception{
+        ArtSources.zerochanUser(user);zerochanWait();
+        return new String(bytes(ArtSources.zerochanFeed(catalog),2*1024*1024,user),StandardCharsets.UTF_8);
     }
     public static String json(String url)throws Exception{return new String(bytes(url,512*1024),StandardCharsets.UTF_8);}
     public static void file(String url,File dest,int max)throws Exception{
