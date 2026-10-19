@@ -16,7 +16,7 @@ import java.util.*;
 import java.util.concurrent.*;
 
 public final class MainActivity extends Activity {
-    static final String VERSION="0.2.0", REPO="Vla3Daak/Nagi-TV";
+    static final String VERSION="0.2.1", REPO="Vla3Daak/Nagi-TV";
     static final String MANIFEST="https://raw.githubusercontent.com/Vla3Daak/Nagi-TV/main/screensavers.json";
     SharedPreferences prefs;
     SceneView scene;
@@ -130,17 +130,22 @@ public final class MainActivity extends Activity {
             if(("alpha".equals(source)||"zerochan".equals(source))&&prefs.getString(artKey(home)+source+"_links","").isEmpty())configureArt(home);
         });
     }
+    boolean zerochanCatalogMode(boolean home){String key=artKey(home);return prefs.getBoolean(key+"zerochan_use_catalog",prefs.getString(key+"zerochan_links","").isEmpty());}
     void configureArt(boolean home){
         String source=artSource(home);
         if("local".equals(source)){message("Встроенный фон","Выберите онлайн-источник, чтобы загружать аниме-арты.");return;}
         if("manifest".equals(source)){editManifest();return;}
         if("wallhaven".equals(source)){message("Wallhaven · автоматическая подборка","Аниме-пейзажи, SFW, горизонтальные файлы от 3840×2160, 16:9. Фильтр SFW не гарантирует пригодность каждого арта для детей. Картинки загружаются только в RAM. Для ручного выбора используйте личный JSON-список Nagi.");return;}
         if("zerochan".equals(source)){
-            String user=prefs.getString("zerochan_user","");
-            new AlertDialog.Builder(this).setTitle("Zerochan · официальный API").setMessage("Ник API: "+(user.isEmpty()?"не указан":user)+"\nДобавьте ссылки на выбранные страницы zerochan.net/номер или прямые изображения. По страницам оригиналы будут получены через API. Выдача случайной подборки сейчас недоступна (HTTP 500 при проверке).\n\nПроверяйте содержание и права на выбранные арты самостоятельно.")
-                .setPositiveButton("Страницы / ссылки",(d,w)->editArtLinks(home,source))
-                .setNeutralButton("Изменить ник",(d,w)->edit("Ник Zerochan для API",prefs.getString("zerochan_user",""),"Имя пользователя",value->{prefs.edit().putString("zerochan_user",ArtSources.zerochanUser(value)).apply();if("zerochan".equals(artSource(true)))scene.resetHomeArt();}))
-                .setNegativeButton("Каталог",(d,w)->{try{startActivity(new Intent(Intent.ACTION_VIEW,Uri.parse(ArtSources.catalog(source))));}catch(Exception e){message("Zerochan",ArtSources.catalog(source));}}).show();return;
+            String key=artKey(home),user=prefs.getString("zerochan_user","");
+            String[] actions={"Режим: "+(zerochanCatalogMode(home)?"Каталог (авто)":"Мои страницы / ссылки"),"Ссылка на каталог","Мои страницы / ссылки","Ник API: "+(user.isEmpty()?"не указан":user),"Открыть каталог в браузере"};
+            new AlertDialog.Builder(this).setTitle("Zerochan · каталог и арты").setItems(actions,(d,w)->{
+                if(w==0)pick("Режим Zerochan",new String[]{"Каталог — автоматическая смена","Мои страницы / ссылки"},zerochanCatalogMode(home)?0:1,i->{prefs.edit().putBoolean(key+"zerochan_use_catalog",i==0).apply();if(home)scene.resetHomeArt();else saver.cancel();});
+                if(w==1)edit("Каталог Zerochan",prefs.getString(key+"zerochan_catalog",ArtSources.ZEROCHAN_CATALOG),"https://www.zerochan.net/Desktop+Wallpaper?s=id",value->{prefs.edit().putString(key+"zerochan_catalog",ArtSources.zerochanCatalog(value)).putBoolean(key+"zerochan_use_catalog",true).apply();if(home)scene.resetHomeArt();else saver.cancel();});
+                if(w==2)editArtLinks(home,source);
+                if(w==3)edit("Ник Zerochan для API",prefs.getString("zerochan_user",""),"Имя пользователя",value->{prefs.edit().putString("zerochan_user",ArtSources.zerochanUser(value)).apply();if("zerochan".equals(artSource(true)))scene.resetHomeArt();});
+                if(w==4){try{startActivity(new Intent(Intent.ACTION_VIEW,Uri.parse(prefs.getString(key+"zerochan_catalog",ArtSources.ZEROCHAN_CATALOG))));}catch(Exception e){message("Zerochan",prefs.getString(key+"zerochan_catalog",ArtSources.ZEROCHAN_CATALOG));}}
+            }).setNegativeButton("Закрыть",null).show();return;
         }
         new AlertDialog.Builder(this).setTitle(ArtSources.label(source)).setMessage("Выберите изображения в каталоге и добавьте прямые HTTPS-ссылки на JPG/PNG/WebP — по одной на строку. Не ссылки на страницы. От 3840×2160. Только личное использование с соблюдением прав автора.\n\nСлучайная выдача и парсинг каталога не используются. Списки меню и заставки независимы.")
             .setPositiveButton("Ввести ссылки",(d,w)->editArtLinks(home,source))
@@ -153,7 +158,7 @@ public final class MainActivity extends Activity {
         LinearLayout box=new LinearLayout(this);box.setPadding(32,10,32,10);box.addView(input,new LinearLayout.LayoutParams(-1,-2));
         AlertDialog dialog=new AlertDialog.Builder(this).setTitle(("zerochan".equals(source)?"Страницы / ссылки · ":"Прямые ссылки · ")+ArtSources.label(source)).setView(box).setPositiveButton("Сохранить",null).setNegativeButton("Отмена",null).create();
         dialog.setOnShowListener(v->dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(b->{try{
-            String value=input.getText().toString().trim();ArtSources.links(source,value);prefs.edit().putString(key,value).apply();
+            String value=input.getText().toString().trim();ArtSources.links(source,value);prefs.edit().putString(key,value).apply();if("zerochan".equals(source))prefs.edit().putBoolean(artKey(home)+"zerochan_use_catalog",false).apply();
             if(home)scene.resetHomeArt();else saver.cancel();scene.dataChanged();dialog.dismiss();
         }catch(Exception e){input.setError(e.getMessage());}}));dialog.show();
     }
