@@ -1,0 +1,44 @@
+package ru.vladaak.nagitv;
+import java.net.URI;
+import java.util.*;
+/** Source policy only. Does not scrape catalogs or claim permission to redistribute art. */
+public final class ArtSources {
+    public static final String[] IDS={"local","manifest","wallhaven","alpha","zerochan"};
+    public static final String[] NAMES={"Встроенный фон","Nagi — онлайн-подборка","Wallhaven — авто, SFW","Alpha Coders — мои арты","Zerochan — страницы / арты"};
+    public static String label(String id){for(int i=0;i<IDS.length;i++)if(IDS[i].equals(id))return NAMES[i];return "Неизвестный источник";}
+    public static String wallhaven(){return "https://wallhaven.cc/api/v1/search?q=landscape&categories=010&purity=100&atleast=3840x2160&ratios=16x9&sorting=random";}
+    public static String catalog(String id){
+        if("wallhaven".equals(id))return "https://wallhaven.cc/search?q=landscape&categories=010&purity=100&atleast=3840x2160&ratios=16x9";
+        if("alpha".equals(id))return "https://alphacoders.com/anime-landscape";
+        if("zerochan".equals(id))return "https://www.zerochan.net/Wallpaper";
+        return "https://github.com/Vla3Daak/Nagi-TV";
+    }
+    public static boolean wallhavenImage(String url,String category,String purity,int width,int height){
+        try{return "anime".equals(category)&&"sfw".equals(purity)&&Policy.fourK(width,height)&&"w.wallhaven.cc".equalsIgnoreCase(Policy.https(url).getHost());}
+        catch(Exception e){return false;}
+    }
+    public static String zerochanUser(String user){
+        String s=user.trim();if(!s.matches("[A-Za-z0-9][A-Za-z0-9_. -]{0,79}"))throw new IllegalArgumentException("Введите ник Zerochan, не email и не ссылку на профиль");return s;
+    }
+    public static String zerochanId(String url){
+        try{URI u=Policy.https(url);String host=u.getHost().toLowerCase(Locale.ROOT);
+            if((host.equals("www.zerochan.net")||host.equals("zerochan.net"))&&u.getQuery()==null&&u.getPath().matches("/[0-9]{1,12}/?"))return u.getPath().replace("/","");
+        }catch(Exception ignored){}return null;
+    }
+    public static String[] links(String source,String text){
+        if(!"alpha".equals(source)&&!"zerochan".equals(source))throw new IllegalArgumentException("Источник не поддерживает ручной список");
+        LinkedHashSet<String> out=new LinkedHashSet<>();
+        for(String value:text.split("\\s+")){
+            if(value.isEmpty())continue;
+            URI u=Policy.https(value);String host=u.getHost().toLowerCase(Locale.ROOT);
+            String base="alpha".equals(source)?"alphacoders.com":"zerochan.net";
+            if(!host.equals(base)&&!host.endsWith("."+base))throw new IllegalArgumentException("Нужна прямая ссылка с "+base);
+            String path=u.getPath().toLowerCase(Locale.ROOT);
+            if(!path.matches(".*\\.(jpg|jpeg|png|webp)$")&&!("zerochan".equals(source)&&zerochanId(value)!=null))throw new IllegalArgumentException("zerochan".equals(source)?"Нужна страница zerochan.net/номер или прямой JPG/PNG/WebP":"Нужен URL самого JPG/PNG/WebP, а не страницы каталога");
+            out.add(value);if(out.size()>50)throw new IllegalArgumentException("Не более 50 изображений в списке");
+        }
+        if(out.isEmpty())throw new IllegalArgumentException("Добавьте хотя бы одну ссылку на изображение");
+        return out.toArray(new String[0]);
+    }
+    private ArtSources(){}
+}
