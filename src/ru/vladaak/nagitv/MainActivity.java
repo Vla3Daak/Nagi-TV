@@ -16,12 +16,12 @@ import java.util.*;
 import java.util.concurrent.*;
 
 public final class MainActivity extends Activity {
-    static final String VERSION="0.1.0", REPO="Vla3Daak/Nagi-TV";
+    static final String VERSION="0.2.0", REPO="Vla3Daak/Nagi-TV";
     static final String MANIFEST="https://raw.githubusercontent.com/Vla3Daak/Nagi-TV/main/screensavers.json";
     SharedPreferences prefs;
     SceneView scene;
     GitHubUpdates updates;
-    OnlineSaver saver;
+    OnlineSaver saver,homeArt;
     final ArrayList<AppEntry> apps=new ArrayList<>();
     ArrayList<String> favorites,hidden,order;
     final Handler handler=new Handler(Looper.getMainLooper());
@@ -38,15 +38,17 @@ public final class MainActivity extends Activity {
     @Override public void onCreate(Bundle state){
         super.onCreate(state);
         prefs=getSharedPreferences("nagi",MODE_PRIVATE);
+        String bundledIdentity=getString(R.string.zerochan_username);
+        if(!prefs.contains("zerochan_user")&&!bundledIdentity.isEmpty())prefs.edit().putString("zerochan_user",bundledIdentity).apply();
         favorites=list("favorites");hidden=list("hidden");order=list("order");
-        updates=new GitHubUpdates(this);saver=new OnlineSaver(this);scene=new SceneView(this);setContentView(scene);
+        updates=new GitHubUpdates(this);saver=new OnlineSaver(this);homeArt=new OnlineSaver(this,true);scene=new SceneView(this);setContentView(scene);
         initSounds();immersive();
         IntentFilter f=new IntentFilter();f.addAction(Intent.ACTION_PACKAGE_ADDED);f.addAction(Intent.ACTION_PACKAGE_REMOVED);f.addAction(Intent.ACTION_PACKAGE_CHANGED);f.addAction(Intent.ACTION_PACKAGE_REPLACED);f.addDataScheme("package");registerReceiver(receiver,f);receiverSet=true;
         refreshApps();
     }
-    @Override protected void onResume(){super.onResume();resumed=true;if(scene!=null){scene.stopSaver();refreshApps();handler.removeCallbacks(clock);handler.post(clock);touchIdle();}}
-    @Override protected void onPause(){resumed=false;handler.removeCallbacks(idle);handler.removeCallbacks(clock);if(scene!=null)scene.stopSaver();super.onPause();}
-    @Override protected void onDestroy(){closed=true;handler.removeCallbacksAndMessages(null);saver.close();updates.close();appLoader.shutdownNow();if(sounds!=null)sounds.release();if(receiverSet)unregisterReceiver(receiver);super.onDestroy();}
+    @Override protected void onResume(){super.onResume();resumed=true;if(scene!=null){scene.stopSaver();scene.resumeHomeArt();refreshApps();handler.removeCallbacks(clock);handler.post(clock);touchIdle();}}
+    @Override protected void onPause(){resumed=false;handler.removeCallbacks(idle);handler.removeCallbacks(clock);if(scene!=null){scene.stopSaver();scene.pauseHomeArt();}super.onPause();}
+    @Override protected void onDestroy(){closed=true;handler.removeCallbacksAndMessages(null);saver.close();homeArt.close();updates.close();appLoader.shutdownNow();if(sounds!=null)sounds.release();if(receiverSet)unregisterReceiver(receiver);super.onDestroy();}
     @Override public void onWindowFocusChanged(boolean has){super.onWindowFocusChanged(has);if(has){immersive();touchIdle();}else handler.removeCallbacks(idle);}
     @Override protected void onNewIntent(Intent i){super.onNewIntent(i);setIntent(i);scene.showHome();touchIdle();}
     @Override public void onBackPressed(){sound("back");scene.back();touchIdle();}
@@ -114,10 +116,50 @@ public final class MainActivity extends Activity {
         AlertDialog d=new AlertDialog.Builder(this).setTitle(title).setView(box).setPositiveButton("Сохранить",null).setNegativeButton("Отмена",null).create();d.setOnShowListener(v->{d.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(b->{try{save.save(input.getText().toString().trim());scene.dataChanged();d.dismiss();}catch(Exception e){input.setError(e.getMessage());}});});d.show();
     }
     void editRepository(){edit("Репозиторий GitHub",prefs.getString("repo",REPO),"владелец/репозиторий",value->{prefs.edit().putString("repo",Policy.repo(value)).apply();updateStatus="Репозиторий сохранён. Нажмите «Проверить обновления».";});}
-    void editManifest(){edit("Онлайн-подборка аниме-артов",prefs.getString("manifest",MANIFEST),"https://…/screensavers.json",value->{Policy.https(value);prefs.edit().putString("manifest",value).apply();saver.cancel();});}
+    void editManifest(){edit("Онлайн-подборка аниме-артов",prefs.getString("manifest",MANIFEST),"https://…/screensavers.json",value->{Policy.https(value);prefs.edit().putString("manifest",value).apply();saver.cancel();if("manifest".equals(artSource(true)))scene.resetHomeArt();});}
+    boolean artActive(){return resumed&&!closed;}
+    String artKey(boolean home){return home?"home_":"saver_";}
+    String artSource(boolean home){return prefs.getString(artKey(home)+"source",home?"local":"manifest");}
+    void selectArtSource(boolean home){
+        int offset=home?0:1,idx=0;String current=artSource(home);
+        String[] names=Arrays.copyOfRange(ArtSources.NAMES,offset,ArtSources.NAMES.length);
+        for(int i=offset;i<ArtSources.IDS.length;i++)if(current.equals(ArtSources.IDS[i]))idx=i-offset;
+        pick(home?"Источник фона меню":"Источник заставки",names,idx,i->{
+            String source=ArtSources.IDS[i+offset];prefs.edit().putString(artKey(home)+"source",source).apply();
+            if(home)scene.resetHomeArt();else saver.cancel();
+            if(("alpha".equals(source)||"zerochan".equals(source))&&prefs.getString(artKey(home)+source+"_links","").isEmpty())configureArt(home);
+        });
+    }
+    void configureArt(boolean home){
+        String source=artSource(home);
+        if("local".equals(source)){message("Встроенный фон","Выберите онлайн-источник, чтобы загружать аниме-арты.");return;}
+        if("manifest".equals(source)){editManifest();return;}
+        if("wallhaven".equals(source)){message("Wallhaven · автоматическая подборка","Аниме-пейзажи, SFW, горизонтальные файлы от 3840×2160, 16:9. Фильтр SFW не гарантирует пригодность каждого арта для детей. Картинки загружаются только в RAM. Для ручного выбора используйте личный JSON-список Nagi.");return;}
+        if("zerochan".equals(source)){
+            String user=prefs.getString("zerochan_user","");
+            new AlertDialog.Builder(this).setTitle("Zerochan · официальный API").setMessage("Ник API: "+(user.isEmpty()?"не указан":user)+"\nДобавьте ссылки на выбранные страницы zerochan.net/номер или прямые изображения. По страницам оригиналы будут получены через API. Выдача случайной подборки сейчас недоступна (HTTP 500 при проверке).\n\nПроверяйте содержание и права на выбранные арты самостоятельно.")
+                .setPositiveButton("Страницы / ссылки",(d,w)->editArtLinks(home,source))
+                .setNeutralButton("Изменить ник",(d,w)->edit("Ник Zerochan для API",prefs.getString("zerochan_user",""),"Имя пользователя",value->{prefs.edit().putString("zerochan_user",ArtSources.zerochanUser(value)).apply();if("zerochan".equals(artSource(true)))scene.resetHomeArt();}))
+                .setNegativeButton("Каталог",(d,w)->{try{startActivity(new Intent(Intent.ACTION_VIEW,Uri.parse(ArtSources.catalog(source))));}catch(Exception e){message("Zerochan",ArtSources.catalog(source));}}).show();return;
+        }
+        new AlertDialog.Builder(this).setTitle(ArtSources.label(source)).setMessage("Выберите изображения в каталоге и добавьте прямые HTTPS-ссылки на JPG/PNG/WebP — по одной на строку. Не ссылки на страницы. От 3840×2160. Только личное использование с соблюдением прав автора.\n\nСлучайная выдача и парсинг каталога не используются. Списки меню и заставки независимы.")
+            .setPositiveButton("Ввести ссылки",(d,w)->editArtLinks(home,source))
+            .setNeutralButton("Открыть каталог",(d,w)->{try{startActivity(new Intent(Intent.ACTION_VIEW,Uri.parse(ArtSources.catalog(source))));}catch(Exception e){message("Каталог",ArtSources.catalog(source)+"\nОткройте ссылку на телефоне или компьютере.");}})
+            .setNegativeButton("Закрыть",null).show();
+    }
+    void editArtLinks(boolean home,String source){
+        String key=artKey(home)+source+"_links";EditText input=new EditText(this);input.setSingleLine(false);input.setMinLines(3);input.setMaxLines(6);input.setText(prefs.getString(key,""));input.setHint("zerochan".equals(source)?"https://www.zerochan.net/номер\nhttps://static.zerochan.net/….jpg":"https://…/image.jpg\nhttps://…/another.png");
+        input.setInputType(android.text.InputType.TYPE_CLASS_TEXT|android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE|android.text.InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
+        LinearLayout box=new LinearLayout(this);box.setPadding(32,10,32,10);box.addView(input,new LinearLayout.LayoutParams(-1,-2));
+        AlertDialog dialog=new AlertDialog.Builder(this).setTitle(("zerochan".equals(source)?"Страницы / ссылки · ":"Прямые ссылки · ")+ArtSources.label(source)).setView(box).setPositiveButton("Сохранить",null).setNegativeButton("Отмена",null).create();
+        dialog.setOnShowListener(v->dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(b->{try{
+            String value=input.getText().toString().trim();ArtSources.links(source,value);prefs.edit().putString(key,value).apply();
+            if(home)scene.resetHomeArt();else saver.cancel();scene.dataChanged();dialog.dismiss();
+        }catch(Exception e){input.setError(e.getMessage());}}));dialog.show();
+    }
     void toggle(String key,boolean defaultValue){prefs.edit().putBoolean(key,!prefs.getBoolean(key,defaultValue)).apply();scene.dataChanged();touchIdle();}
     void pick(String title,String[] names,int checked,java.util.function.IntConsumer action){new AlertDialog.Builder(this).setTitle(title).setSingleChoiceItems(names,checked,(d,w)->{action.accept(w);scene.dataChanged();touchIdle();d.dismiss();}).setNegativeButton("Отмена",null).show();}
-    void resetPrefs(){new AlertDialog.Builder(this).setTitle("Сбросить настройки Nagi TV?").setMessage("Избранное, скрытые приложения и оформление будут сброшены. Приложения приставки и системный выбор Home не изменятся.").setPositiveButton("Сбросить",(d,w)->{prefs.edit().clear().apply();favorites.clear();hidden.clear();order.clear();refreshApps();scene.showHome();}).setNegativeButton("Отмена",null).show();}
+    void resetPrefs(){new AlertDialog.Builder(this).setTitle("Сбросить настройки Nagi TV?").setMessage("Избранное, скрытые приложения и оформление будут сброшены. Приложения приставки и системный выбор Home не изменятся.").setPositiveButton("Сбросить",(d,w)->{prefs.edit().clear().apply();scene.resetHomeArt();favorites.clear();hidden.clear();order.clear();refreshApps();scene.showHome();}).setNegativeButton("Отмена",null).show();}
     private void initSounds(){
         sounds=new SoundPool.Builder().setMaxStreams(3).setAudioAttributes(new AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_ASSISTANCE_SONIFICATION).setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION).build()).build();
         sounds.setOnLoadCompleteListener((pool,id,status)->{if(status==0)loadedSounds.add(id);});
