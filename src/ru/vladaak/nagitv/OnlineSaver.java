@@ -14,6 +14,7 @@ final class OnlineSaver {
     private volatile boolean closed;
     private volatile int generation;
     private int index;
+    private boolean catalogList;
     private final ArrayList<JSONObject> images=new ArrayList<>();
     OnlineSaver(MainActivity a){this(a,false);}
     OnlineSaver(MainActivity a,boolean home){this.a=a;this.home=home;}
@@ -25,9 +26,11 @@ final class OnlineSaver {
         final String source=a.artSource(home),links=a.prefs.getString(a.artKey(home)+source+"_links","");
         final String manifest=a.prefs.getString("manifest",MainActivity.MANIFEST);
         final String zerochanUser=a.prefs.getString("zerochan_user","");
+        final boolean fromCatalog="zerochan".equals(source)&&a.zerochanCatalogMode(home);
+        final String catalog=a.prefs.getString(a.artKey(home)+"zerochan_catalog",ArtSources.ZEROCHAN_CATALOG);
         task=io.submit(()->{
             try{
-                images.clear();index=0;ArrayList<JSONObject> accepted=new ArrayList<>();
+                images.clear();index=0;catalogList=fromCatalog;ArrayList<JSONObject> accepted=new ArrayList<>();
                 if("local".equals(source))return;
                 if("wallhaven".equals(source)){
                     JSONArray arr=new JSONObject(Net.json(ArtSources.wallhaven())).getJSONArray("data");
@@ -36,6 +39,11 @@ final class OnlineSaver {
                         String url=v.getString("path");
                         if(!ArtSources.wallhavenImage(url,v.optString("category"),v.optString("purity"),v.optInt("dimension_x"),v.optInt("dimension_y")))continue;
                         accepted.add(new JSONObject().put("url",url).put("title","Wallhaven · "+v.optString("id")));
+                    }
+                }else if(fromCatalog){
+                    if(zerochanUser.isEmpty())throw new IllegalArgumentException("Укажите ник Zerochan в настройках источника");
+                    for(ZerochanCatalog.Entry entry:ZerochanCatalog.parse(Net.zerochanFeed(catalog,zerochanUser))){
+                        accepted.add(new JSONObject().put("url","https://www.zerochan.net/"+entry.id).put("title",entry.title).put("zerochan_id",entry.id).put("api_user",zerochanUser).put("from_catalog",true));
                     }
                 }else if("alpha".equals(source)||"zerochan".equals(source)){
                     String[] urls=ArtSources.links(source,links);
@@ -57,7 +65,10 @@ final class OnlineSaver {
             }catch(Exception e){error(g,e);}catch(OutOfMemoryError e){error(g,new IOException("Недостаточно RAM"));}
         });
     }
-    void next(){if(closed)return;final int g=generation;task=io.submit(()->{try{if(valid(g)&&!images.isEmpty())load(g);}catch(Exception e){error(g,e);}catch(OutOfMemoryError e){error(g,new IOException("Недостаточно RAM"));}});}
+    void next(){if(closed)return;final int g=generation;task=io.submit(()->{try{if(valid(g)&&!images.isEmpty()){
+        if(catalogList&&index>=images.size()){a.runOnUiThread(()->{if(!closed&&g==generation&&a.artActive())first();});return;}
+        load(g);
+    }}catch(Exception e){error(g,e);}catch(OutOfMemoryError e){error(g,new IOException("Недостаточно RAM"));}});}
     private void load(int g)throws Exception{
         Exception last=null;
         for(int tries=0;tries<Math.min(3,images.size());tries++){
@@ -66,6 +77,7 @@ final class OnlineSaver {
                 if(item.has("zerochan_id")&&!item.optBoolean("zerochan_resolved")){
                     String id=item.getString("zerochan_id");JSONObject v=new JSONObject(Net.zerochan(id,item.getString("api_user")));
                     if(!Policy.fourK(v.optInt("width"),v.optInt("height")))throw new IOException("Арт Zerochan "+id+" меньше 3840×2160 или не горизонтальный");
+                    if(item.optBoolean("from_catalog")&&!ZerochanCatalog.safeTags(v.optJSONArray("tags")==null?"":v.getJSONArray("tags").toString()))throw new IOException("Арт пропущен фильтром тегов");
                     String full=v.getString("full"),host=Policy.https(full).getHost();
                     if(!host.equals("zerochan.net")&&!host.endsWith(".zerochan.net"))throw new IOException("Неожиданный адрес оригинала Zerochan");
                     String title=v.optString("primary","Zerochan");if(title.length()>100)title=title.substring(0,100);
