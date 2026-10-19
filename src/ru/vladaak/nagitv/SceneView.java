@@ -16,6 +16,20 @@ final class SceneView extends View {
     private final RectF rect=new RectF();
     private final Typeface regular=Typeface.create("sans-serif",0),medium=Typeface.create("sans-serif-medium",0),light=Typeface.create("sans-serif-light",0);
     private final Bitmap wallpaper;
+    private Bitmap homePicture;
+    private String homeTitle="Тишина у озера",homeStatus="Встроенный фон";
+    private boolean homeRunning;
+    private final Runnable nextHome=this::loadNextHome;
+    private void loadNextHome(){if(homeRunning&&!"local".equals(a.artSource(true)))a.homeArt.next();}
+    void pauseHomeArt(){homeRunning=false;h.removeCallbacks(nextHome);a.homeArt.cancel();}
+    void resumeHomeArt(){homeRunning=true;if(!"local".equals(a.artSource(true))){if(homePicture==null)a.homeArt.first();else scheduleHome();}}
+    void resetHomeArt(){h.removeCallbacks(nextHome);a.homeArt.cancel();homePicture=null;homeTitle="Тишина у озера";homeStatus="Встроенный фон";invalidate();if(homeRunning&&!"local".equals(a.artSource(true))){homeStatus="Загрузка…";a.homeArt.first();}}
+    void homeIntervalChanged(){h.removeCallbacks(nextHome);if(homePicture!=null)scheduleHome();}
+    private void scheduleHome(){int mins=a.prefs.getInt("home_minutes",0);h.removeCallbacks(nextHome);if(homeRunning&&mins>0)h.postDelayed(nextHome,mins*60000L);}
+    void homePictureReady(Bitmap b,String title){homePicture=b;homeTitle=title;homeStatus="Загружено · только RAM";scheduleHome();invalidate();}
+    void homePictureError(String msg){homePicture=null;homeTitle="Тишина у озера";homeStatus=msg;h.removeCallbacks(nextHome);invalidate();}
+    private Bitmap menuPicture(){return homePicture==null?wallpaper:homePicture;}
+
     private final ArrayList<MainActivity.AppEntry> shown=new ArrayList<>();
     private final ArrayList<S> settings=new ArrayList<>();
     private final ArrayList<Hit> hits=new ArrayList<>();
@@ -71,9 +85,12 @@ final class SceneView extends View {
                 add("Начальный раздел",a.prefs.getBoolean("start_apps",false)?"Приложения":"Главная",()->a.pick("Начальный раздел",new String[]{"Главная","Приложения"},a.prefs.getBoolean("start_apps",false)?1:0,i->a.prefs.edit().putBoolean("start_apps",i==1).apply()));
                 addToggle("24-часовой формат времени","clock_24",true);addToggle("Показывать дату","show_date",true);addToggle("Подсказки управления","hints",true);break;
             case 1:
-                add("Фон главного экрана","Atmosphere",()->a.message("Atmosphere","В этой версии используется выбранный фон с горным озером. Онлайн-аниме-арты используются только в заставке. Это позволяет сохранить читаемый главный экран и не загружать картинки без необходимости."));
-                addToggle("Плавное выделение и переходы","animations",true);addToggle("Компактные плитки","compact",false);
-                add("Затемнение фона",a.prefs.getInt("dim",40)+" %",()->choices("Затемнение","dim",new int[]{20,40,60,80},new String[]{"20 %","40 %","60 %","80 %"},40));break;
+                add("Источник фона меню",ArtSources.label(a.artSource(true)),()->a.selectArtSource(true));
+                add("Настроить источник","Каталог / ссылки",()->a.configureArt(true));
+                add("Смена фона",a.prefs.getInt("home_minutes",0)==0?"Не менять автоматически":a.prefs.getInt("home_minutes",0)+" мин",()->a.pick("Смена фона меню",new String[]{"Не менять автоматически","5 минут","15 минут","30 минут"},a.prefs.getInt("home_minutes",0)==5?1:a.prefs.getInt("home_minutes",0)==15?2:a.prefs.getInt("home_minutes",0)==30?3:0,i->{a.prefs.edit().putInt("home_minutes",new int[]{0,5,15,30}[i]).apply();homeIntervalChanged();}));
+                add("Загрузить другой фон","Из выбранного источника",()->resetHomeArt());
+                add("Затемнение фона",a.prefs.getInt("dim",40)+" %",()->choices("Затемнение","dim",new int[]{20,40,60,80},new String[]{"20 %","40 %","60 %","80 %"},40));
+                addToggle("Плавное выделение и переходы","animations",true);addToggle("Компактные плитки","compact",false);break;
             case 2:
                 add("Настроить избранное",a.favoriteApps().size()+" из 6",()->{showHome();a.toast("Удерживайте OK на приложении. Все приложения доступны во вкладке «Приложения».");});
                 add("Скрытые приложения",a.hidden.size()==0?"Нет":String.valueOf(a.hidden.size()),()->a.showHidden());
@@ -86,7 +103,8 @@ final class SceneView extends View {
                 add("Начинать через",a.prefs.getInt("saver_minutes",5)+" мин",()->choices("Таймер бездействия","saver_minutes",new int[]{1,3,5,10,15,30},new String[]{"1 минута","3 минуты","5 минут","10 минут","15 минут","30 минут"},5));
                 add("Менять арт каждые",a.prefs.getInt("saver_seconds",30)+" сек",()->choices("Интервал смены артов","saver_seconds",new int[]{15,30,60,120},new String[]{"15 секунд","30 секунд","1 минута","2 минуты"},30));
                 addToggle("Показывать часы","saver_clock",true);
-                add("Онлайн-подборка","Изменить ссылку",()->a.editManifest());
+                add("Источник заставки",ArtSources.label(a.artSource(false)),()->a.selectArtSource(false));
+                add("Настроить источник","Каталог / ссылки",()->a.configureArt(false));
                 add("Предпросмотр","Показать",()->startSaver());break;
             case 4:
                 addToggle("Звуки навигации","sounds",true);
@@ -107,9 +125,9 @@ final class SceneView extends View {
                 add("Удалить загруженный APK","Освободить место",()->a.updates.deleteDownload());
                 add("Открыть релизы в браузере","Открыть",()->{try{a.startActivity(new Intent(Intent.ACTION_VIEW,android.net.Uri.parse("https://github.com/"+Policy.repo(a.prefs.getString("repo",MainActivity.REPO))+"/releases")));}catch(Exception e){a.toast("Браузер недоступен. Проверяйте обновления прямо в Nagi TV.");}});break;
             case 7:
-                add("Версия Nagi TV",MainActivity.VERSION+" · versionCode 1",()->a.message("Nagi TV", "Независимый лаунчер, вдохновлённый tvOS. Не связан с Apple.\n\nПервая тестовая версия для Android TV 11. На физической приставке необходимо проверить Home, пульт и производительность."));
+                add("Версия Nagi TV",MainActivity.VERSION+" · versionCode 2",()->a.message("Nagi TV", "Независимый лаунчер, вдохновлённый tvOS. Не связан с Apple.\n\nПервая тестовая версия для Android TV 11. На физической приставке необходимо проверить Home, пульт и производительность."));
                 add("Устройство",Build.MODEL,()->a.message("Устройство",Build.MANUFACTURER+" / "+Build.MODEL+"\nAndroid "+Build.VERSION.RELEASE+"\n"+Build.DISPLAY));
-                add("Приватность","Без рекламы и аналитики",()->a.message("Приватность","Сетевые запросы: GitHub Releases и выбранная подборка заставок. Сервисам виден IP-адрес приставки. Аналитики и рекламы нет.\n\nАрты и список ссылок находятся только в RAM, дисковый кэш отключён. Загруженный APK обновления хранится отдельно до удаления. Избранное и настройки сохраняются локально."));
+                add("Приватность","Без рекламы и аналитики",()->a.message("Приватность","Сетевые запросы: GitHub Releases и выбранные источники фона и заставок (Wallhaven, Alpha Coders, Zerochan, личный JSON). Сервисам виден IP-адрес приставки. Аналитики и рекламы нет.\n\nАрты и автоматическая выдача находятся только в RAM, дисковый кэш отключён. Введённые вручную ссылки и настройки сохраняются локально. Загруженный APK обновления хранится отдельно до удаления. Избранное и настройки сохраняются локально."));
                 add("Авторы и изображения","Подробнее",()->a.message("Авторы и изображения","Интерфейс и звуки созданы для Nagi TV. Стартовые аниме-арты сгенерированы ИИ, затем увеличены с 1376×768 до 3840×2160. Это 4K-файлы, но не исходная детализация 4K. Оригинальные персонажи, не материалы Apple.\n\nВы можете заменить подборку своими горизонтальными изображениями от 3840×2160, если имеете право их использовать."));
                 add("Сбросить настройки…","С подтверждением",()->a.resetPrefs());break;
         }
@@ -127,7 +145,7 @@ final class SceneView extends View {
     private int lastFocus=0;
     private void animatePage(){if(pageAnimator!=null)pageAnimator.cancel();transition=animations()?0:1;if(!animations()){invalidate();return;}pageAnimator=ValueAnimator.ofFloat(0,1);pageAnimator.setDuration(190);pageAnimator.setInterpolator(new DecelerateInterpolator());pageAnimator.addUpdateListener(v->{transition=(float)v.getAnimatedValue();invalidate();});pageAnimator.start();}
     private void image(Canvas c,Bitmap b,RectF target,int alpha,float zoom){if(b==null)return;float bw=b.getWidth(),bh=b.getHeight(),r=Math.max(target.width()/bw,target.height()/bh)*zoom,w=bw*r,hh=bh*r;RectF to=new RectF(target.centerX()-w/2,target.centerY()-hh/2,target.centerX()+w/2,target.centerY()+hh/2);p.setShader(null);p.setColor(Color.WHITE);p.setAlpha(alpha);c.drawBitmap(b,null,to,p);p.setAlpha(255);}
-    private void background(Canvas c){c.drawColor(0xff071320);image(c,wallpaper,new RectF(0,0,1920,1080),255,1);int dim=a.prefs.getInt("dim",40);int alpha=page==2?218:Math.min(210,(int)(dim*1.8));p.setShader(new LinearGradient(0,0,1920,1080,new int[]{Color.argb(alpha,4,15,27),Color.argb(Math.max(70,alpha-35),5,16,28)},null,Shader.TileMode.CLAMP));c.drawRect(0,0,1920,1080,p);p.setShader(new LinearGradient(0,500,0,1080,0x00071320,0xe0071320,Shader.TileMode.CLAMP));c.drawRect(0,0,1920,1080,p);p.setShader(null);}
+    private void background(Canvas c){c.drawColor(0xff071320);image(c,menuPicture(),new RectF(0,0,1920,1080),255,1);int dim=a.prefs.getInt("dim",40);int alpha=page==2?218:Math.min(210,(int)(dim*1.8));p.setShader(new LinearGradient(0,0,1920,1080,new int[]{Color.argb(alpha,4,15,27),Color.argb(Math.max(70,alpha-35),5,16,28)},null,Shader.TileMode.CLAMP));c.drawRect(0,0,1920,1080,p);p.setShader(new LinearGradient(0,500,0,1080,0x00071320,0xe0071320,Shader.TileMode.CLAMP));c.drawRect(0,0,1920,1080,p);p.setShader(null);}
     @Override protected void onDraw(Canvas c){super.onDraw(c);c.save();c.scale(getWidth()/1920f,getHeight()/1080f);hits.clear();if(page==3){drawSaver(c);c.restore();return;}background(c);c.save();if(transition<1){c.translate(0,(1-transition)*12);c.saveLayerAlpha(0,140,1920,1020,Math.round(100+155*transition));}if(page==0)drawHome(c);else if(page==1)drawApps(c);else drawSettings(c);if(transition<1)c.restore();c.restore();drawHeader(c);drawFooter(c);c.restore();}
     private void drawHeader(Canvas c){
         box(c,108,73,42,42,12,0xffeef4ff);text(c,"N",117,106,30,0xff1c3047,medium);text(c,"Nagi TV",165,105,30,Color.WHITE,medium);
@@ -143,7 +161,7 @@ final class SceneView extends View {
         if(a.prefs.getBoolean("show_date",true))text(c,date().toUpperCase(new Locale("ru")),108,275,20,0xffd5e2ee,medium);
         int hour=Calendar.getInstance().get(Calendar.HOUR_OF_DAY);String line1=hour>=18||hour<5?"Вечер начинается":"Ваш день.",line2=hour>=18||hour<5?"здесь.":"Ваши истории.";
         text(c,line1,103,389,88,Color.WHITE,light);text(c,line2,103,484,88,Color.WHITE,light);text(c,"Устройтесь поудобнее.",108,554,29,0xffcedbe8,regular);
-        rightText(c,"Тишина у озера",1812,618,20,0xffbdcedc,regular);text(c,"Ваши приложения",108,730,30,Color.WHITE,medium);
+        rightText(c,fit(homeTitle,800,20),1812,618,20,0xffbdcedc,regular);text(c,"Ваши приложения",108,730,30,Color.WHITE,medium);
         if(shown.isEmpty()){text(c,"Пока нет приложений для ТВ",108,824,35,Color.WHITE,medium);text(c,"Настройки → Приложения → Приложения для телефона",108,877,25,0xffbfcede,regular);return;}
         for(int i=0;i<Math.min(6,shown.size());i++)tile(c,shown.get(i),108+i*288,770,264,148,i,page*1000+i);
     }
@@ -176,17 +194,14 @@ final class SceneView extends View {
         }
         text(c,tabs[side],650,252,45,Color.WHITE,light);text(c,descriptions[side],650,302,24,0xffbed0e2,regular);
         float y=352;
-        if(side==1){
-            c.save();Path clip=new Path();clip.addRoundRect(new RectF(650,347,1108,591),20,20,Path.Direction.CW);c.clipPath(clip);image(c,wallpaper,new RectF(650,347,1108,591),255,1);c.restore();text(c,"Atmosphere",1146,413,37,Color.WHITE,light);text(c,"Пейзаж и мягкий свет.",1146,460,25,0xffbbcee2,regular);text(c,"Пространство для ваших историй.",1146,501,24,0xffbbcee2,regular);y=622;
-        }
         if(side==3){
-            c.save();Path clip=new Path();clip.addRoundRect(new RectF(650,347,1812,567),20,20,Path.Direction.CW);c.clipPath(clip);image(c,wallpaper,new RectF(650,347,1812,567),210,1);p.setColor(0x70051b30);c.drawRect(650,347,1812,567,p);c.restore();text(c,"АНИМЕ-ПЕЙЗАЖИ И ПЕРСОНАЖИ",678,489,20,0xffe0eafa,medium);text(c,"Онлайн · 4K-файлы · только RAM",678,535,31,Color.WHITE,light);
-            for(int i=0;i<settings.size();i++){float x=650+(i%2)*587,yy=595+(i/2)*103;settingCard(c,settings.get(i),i,x,yy,575,91);}
+            c.save();Path clip=new Path();clip.addRoundRect(new RectF(650,347,1812,567),20,20,Path.Direction.CW);c.clipPath(clip);image(c,menuPicture(),new RectF(650,347,1812,567),210,1);p.setColor(0x70051b30);c.drawRect(650,347,1812,567,p);c.restore();text(c,"АНИМЕ-ПЕЙЗАЖИ И ПЕРСОНАЖИ",678,489,20,0xffe0eafa,medium);text(c,"Онлайн · 4K-файлы · только RAM",678,535,31,Color.WHITE,light);
+            for(int i=0;i<settings.size();i++){float x=650+(i%2)*587,yy=575+(i/2)*90;settingCard(c,settings.get(i),i,x,yy,575,80);}
             text(c,"Без интернета новые арты не загрузятся. Изображения на диск не записываются.",656,947,22,0xffb3c7dc,regular);return;
         }
         for(int i=0;i<settings.size();i++){settingRow(c,settings.get(i),i,650,y+i*86,1162,76);}
         float noteY=y+settings.size()*86+25;
-        String note=side==0?"Штатный лаунчер не удаляется. Назначение Home зависит от прошивки.":side==2?"Действия с плиткой: удержание OK или кнопка Menu.":side==4?"Home работает после назначения Nagi TV домашним приложением.":side==5?"Открываются системные разделы. При недоступности — общие настройки.":side==6?a.updateStatus:side==7?"Вдохновлён tvOS. Не является продуктом Apple.":"Анимацию можно отключить для минимальной нагрузки.";
+        String note=side==1?homeStatus:side==0?"Штатный лаунчер не удаляется. Назначение Home зависит от прошивки.":side==2?"Действия с плиткой: удержание OK или кнопка Menu.":side==4?"Home работает после назначения Nagi TV домашним приложением.":side==5?"Открываются системные разделы. При недоступности — общие настройки.":side==6?a.updateStatus:side==7?"Вдохновлён tvOS. Не является продуктом Apple.":"Анимацию можно отключить для минимальной нагрузки.";
         text(c,fit(note,1150,22),656,Math.min(978,noteY),22,0xffb4c8dd,regular);
     }
     private void settingRow(Canvas c,S s,int i,float x,float y,float w,float hh){boolean f=zone==2&&selected==i;box(c,x,y,w,hh,14,f?0xffeff5fb:0x10ffffff);text(c,s.label,x+26,y+48,26,f?0xff19334b:0xfff0f6fc,regular);if(s.toggle)drawToggle(c,x+w-133,y+23,s.on,f);else{String v=fit(s.value,480,24);rightText(c,v,x+w-54,y+47,24,f?0xff506c85:0xffbcd0e6,regular);text(c,"›",x+w-32,y+47,31,f?0xff506c85:0xffbcd0e6,regular);}final int n=i;hit(x,y,w,hh,()->{zone=2;selected=n;activate();});}
@@ -217,7 +232,7 @@ final class SceneView extends View {
         if(zone==0){if(key==21)nav=Math.max(0,nav-1);if(key==22)nav=Math.min(2,nav+1);if(key==20){zone=1;if(page==2)side=Math.max(0,side);}}
         else if(page==2){
             if(zone==1){if(key==19){if(side==0){zone=0;nav=2;}else side--;}if(key==20)side=Math.min(tabs.length-1,side+1);if(key==22){zone=2;selected=0;}buildSettings();}
-            else if(side==3){if(key==21){if(selected%2==0)zone=1;else selected--;}if(key==22&&selected%2==0)selected++;if(key==19){if(selected<2){zone=0;nav=2;}else selected-=2;}if(key==20)selected=Math.min(settings.size()-1,selected+2);}
+            else if(side==3){if(key==21){if(selected%2==0)zone=1;else selected--;}if(key==22&&selected%2==0&&selected+1<settings.size())selected++;if(key==19){if(selected<2){zone=0;nav=2;}else selected-=2;}if(key==20)selected=Math.min(settings.size()-1,selected+2);}
             else{if(key==21)zone=1;if(key==19){if(selected==0){zone=0;nav=2;}else selected--;}if(key==20)selected=Math.min(settings.size()-1,selected+1);}
         }else if(!shown.isEmpty()){
             if(key==21)selected=Math.max(page==1?appPage*12:0,selected-1);
@@ -233,7 +248,7 @@ final class SceneView extends View {
     @Override public boolean onKeyUp(int key,KeyEvent e){if(key==23||key==66||key==160||key==96){h.removeCallbacks(longPress);boolean run=centerDown&&!longAction&&!e.isCanceled();centerDown=false;if(run)activate();return true;}return super.onKeyUp(key,e);}
     @Override public void onWindowFocusChanged(boolean has){super.onWindowFocusChanged(has);if(!has){h.removeCallbacks(longPress);centerDown=false;}}
     @Override protected void onAttachedToWindow(){super.onAttachedToWindow();attached=true;}
-    @Override protected void onDetachedFromWindow(){attached=false;h.removeCallbacksAndMessages(null);if(focusAnimator!=null)focusAnimator.cancel();if(pageAnimator!=null)pageAnimator.cancel();if(pictureAnimator!=null)pictureAnimator.cancel();super.onDetachedFromWindow();}
+    @Override protected void onDetachedFromWindow(){attached=false;pauseHomeArt();h.removeCallbacksAndMessages(null);if(focusAnimator!=null)focusAnimator.cancel();if(pageAnimator!=null)pageAnimator.cancel();if(pictureAnimator!=null)pictureAnimator.cancel();super.onDetachedFromWindow();}
     @Override public boolean performClick(){super.performClick();return true;}
     @Override public boolean onTouchEvent(MotionEvent e){if(isSaver()){if(e.getAction()==MotionEvent.ACTION_UP){stopSaver();performClick();}return true;}a.touchIdle();if(e.getAction()==MotionEvent.ACTION_UP){float x=e.getX()*1920/getWidth(),y=e.getY()*1080/getHeight();for(Hit hit:hits)if(hit.box.contains(x,y)){hit.click.run();performClick();invalidate();break;}}return true;}
 }
