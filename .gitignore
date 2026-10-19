@@ -1,0 +1,11 @@
+private/
+build/
+*.jks
+*.keystore
+signing.env
+*.apk
+*.apk.idsig
+__pycache__/
+res/**/*.jpg
+res/**/*.png
+res/**/*.wav
